@@ -1,7 +1,8 @@
 <template>
   <view class="page" v-if="result">
     <text class="lead">你的灵魂里住着一只</text>
-    <text class="emoji-big">{{ result.animal.emoji }}</text>
+    <image v-if="imgOf(result.animal.id)" class="animal-img" :src="imgOf(result.animal.id)" mode="aspectFill" />
+    <text v-else class="emoji-big">{{ result.animal.emoji }}</text>
     <text class="aname">{{ result.animal.fullName }}</text>
     <text class="atitle">{{ result.animal.title }}</text>
     <text class="match">匹配度 {{ result.matchPercent }}% · 只有约 {{ result.animal.rarity }}% 的人是{{ result.animal.name }}</text>
@@ -25,7 +26,12 @@
     <view class="extra">
       <text class="extra-line">座右铭：「{{ result.animal.motto }}」</text>
       <text class="extra-line">小缺点：{{ result.animal.flaw }}</text>
-      <text class="extra-line" v-if="partner">最佳拍档：{{ partner.emoji }} {{ partner.fullName }}</text>
+      <view class="extra-line partner-line" v-if="partner">
+        <text>最佳拍档：</text>
+        <image v-if="imgOf(partner.id)" class="partner-img" :src="imgOf(partner.id)" mode="aspectFill" />
+        <text v-else>{{ partner.emoji }}</text>
+        <text>{{ partner.fullName }}</text>
+      </view>
     </view>
 
     <button class="btn-primary" @click="makePoster">生成分享海报</button>
@@ -52,6 +58,9 @@ import { onLoad, onShareAppMessage } from "@dcloudio/uni-app";
 import quizJson from "@/common/data/questions.json";
 import animalsJson from "@/common/data/animals.json";
 import type { AnimalsData, QuizData, QuizResult } from "@/common/scoring";
+import { animalImage } from "@/common/animalImages";
+
+const imgOf = animalImage;
 
 const quiz = quizJson as unknown as QuizData;
 const animalsData = animalsJson as unknown as AnimalsData;
@@ -98,13 +107,29 @@ function again() {
 
 // ---- 分享海报（Canvas 绘制，不依赖第三方库）----
 const posterW = 600;
-const posterH = 800;
+const posterH = 880;
 const posterPath = ref("");
 
-function makePoster() {
+function getImageInfoAsync(src: string) {
+  return new Promise<UniApp.GetImageInfoSuccessData>((resolve, reject) => {
+    uni.getImageInfo({ src, success: resolve, fail: reject });
+  });
+}
+
+async function makePoster() {
   const r = result.value;
   if (!r) return;
   const a = r.animal;
+  // 优先用伪 3D 素材图绘制海报；取图失败时回退到 emoji
+  let imgPath: string | null = null;
+  const src = animalImage(a.id);
+  if (src) {
+    try {
+      imgPath = (await getImageInfoAsync(src)).path;
+    } catch {
+      imgPath = null;
+    }
+  }
   const ctx = uni.createCanvasContext("posterCanvas");
   ctx.setFillStyle("#FFF3E0");
   ctx.fillRect(0, 0, posterW, posterH);
@@ -117,23 +142,27 @@ function makePoster() {
   ctx.setFontSize(26);
   ctx.fillText("三分钟 · 十道题 · 测出你的灵魂萌兽", posterW / 2, 128);
   ctx.setTextAlign("center");
-  ctx.setFontSize(150);
-  ctx.fillText(a.emoji, posterW / 2, 380);
+  if (imgPath) {
+    ctx.drawImage(imgPath, 160, 204, 280, 280);
+  } else {
+    ctx.setFontSize(150);
+    ctx.fillText(a.emoji, posterW / 2, 420);
+  }
   ctx.setFillStyle("#3E2723");
   ctx.setFontSize(52);
-  ctx.fillText(a.fullName, posterW / 2, 480);
+  ctx.fillText(a.fullName, posterW / 2, 566);
   ctx.setFillStyle("#FF7043");
   ctx.setFontSize(32);
-  ctx.fillText(a.title, posterW / 2, 536);
+  ctx.fillText(a.title, posterW / 2, 622);
   ctx.setFillStyle("#8D6E63");
   ctx.setFontSize(27);
-  ctx.fillText(`匹配度 ${r.matchPercent}% · 只有约 ${a.rarity}% 的人是${a.name}`, posterW / 2, 592);
+  ctx.fillText(`匹配度 ${r.matchPercent}% · 只有约 ${a.rarity}% 的人是${a.name}`, posterW / 2, 676);
   ctx.setFillStyle("#5D4037");
   ctx.setFontSize(29);
-  ctx.fillText(`「${a.motto}」`, posterW / 2, 668);
+  ctx.fillText(`「${a.motto}」`, posterW / 2, 750);
   ctx.setFillStyle("#BCAAA4");
   ctx.setFontSize(23);
-  ctx.fillText("仅供娱乐 · 快喊朋友来测测 TA 是哪只", posterW / 2, 742);
+  ctx.fillText("仅供娱乐 · 快喊朋友来测测 TA 是哪只", posterW / 2, 822);
   ctx.draw(false, () => {
     setTimeout(() => {
       uni.canvasToTempFilePath({
@@ -162,6 +191,22 @@ function makePoster() {
 .emoji-big {
   font-size: 170rpx;
   margin-top: 10rpx;
+}
+.animal-img {
+  width: 320rpx;
+  height: 320rpx;
+  border-radius: 48rpx;
+  margin-top: 16rpx;
+}
+.partner-line {
+  display: flex;
+  align-items: center;
+}
+.partner-img {
+  width: 46rpx;
+  height: 46rpx;
+  border-radius: 12rpx;
+  margin: 0 10rpx;
 }
 .aname {
   font-size: 54rpx;

@@ -1,7 +1,10 @@
 <template>
   <view class="page">
     <view class="zoo">
-      <text v-for="a in animals" :key="a.id" class="zoo-item">{{ a.emoji }}</text>
+      <view v-for="a in animals" :key="a.id" class="zoo-item">
+        <image v-if="imgOf(a.id)" class="zoo-img" :src="imgOf(a.id)" mode="aspectFill" />
+        <text v-else class="zoo-emoji">{{ a.emoji }}</text>
+      </view>
     </view>
     <text class="h1">性格测试</text>
     <text class="h1">看看你是哪种萌兽</text>
@@ -13,7 +16,8 @@
       <text class="guide-title">萌兽图鉴 · 18 只</text>
       <view class="grid">
         <view v-for="a in animals" :key="a.id" class="cell">
-          <text class="cell-emoji">{{ a.emoji }}</text>
+          <image v-if="imgOf(a.id)" class="cell-img" :src="imgOf(a.id)" mode="aspectFill" />
+          <text v-else class="cell-emoji">{{ a.emoji }}</text>
           <text class="cell-name">{{ a.fullName }}</text>
         </view>
       </view>
@@ -24,8 +28,10 @@
 <script setup lang="ts">
 import animalsJson from "@/common/data/animals.json";
 import type { AnimalsData } from "@/common/scoring";
+import { animalImage } from "@/common/animalImages";
 
 const animals = (animalsJson as unknown as AnimalsData).animals;
+const imgOf = animalImage;
 
 function start() {
   uni.navigateTo({ url: "/pages/quiz/quiz" });
@@ -46,8 +52,16 @@ function start() {
   margin-bottom: 28rpx;
 }
 .zoo-item {
-  font-size: 44rpx;
   margin: 4rpx;
+  display: flex;
+}
+.zoo-img {
+  width: 68rpx;
+  height: 68rpx;
+  border-radius: 18rpx;
+}
+.zoo-emoji {
+  font-size: 44rpx;
 }
 .h1 {
   font-size: 52rpx;
@@ -99,6 +113,11 @@ function start() {
   flex-direction: column;
   align-items: center;
   padding: 16rpx 0;
+}
+.cell-img {
+  width: 124rpx;
+  height: 124rpx;
+  border-radius: 28rpx;
 }
 .cell-emoji {
   font-size: 56rpx;
