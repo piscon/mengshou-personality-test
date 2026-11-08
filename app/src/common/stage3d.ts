@@ -1,7 +1,9 @@
 // 3D 萌兽展示台（three.js，仅 H5 端调用；小程序端页面走静态图回退）
-// 场景：定版插画贴在带厚度的圆角立牌上，立在主题色展台上，
-// 支持按住拖拽旋转/俯仰，松手 2.5 秒后自动转台，带浮尘粒子和柔和投影。
+// 场景：有程序化真 3D 模型的动物（见 models3d.ts）直接立模型在主题色展台上；
+// 其余动物仍用定版插画贴在带厚度的圆角立牌上回退。支持按住拖拽旋转/俯仰，
+// 松手 2.5 秒后自动转台，带浮尘粒子和柔和投影。
 import * as THREE from "three";
+import { buildProceduralModel, animateModelParts, type ProceduralModel } from "./models3d";
 
 export interface StageOptions {
   image: string;
@@ -236,40 +238,50 @@ export function createAnimalStage(container: HTMLElement, opts: StageOptions): S
   shadow.position.y = -1.78;
   root.add(shadow);
 
-  // ---- 立牌（正面贴图 + 背板厚度）----
+  // ---- 展示主体：有真 3D 模型的动物用模型，没有的仍用旧立牌回退 ----
+  const model: ProceduralModel | null = buildProceduralModel(opts.animalId);
   const card = new THREE.Group();
-  const shape = roundedRectShape(2.6, 2.6, 0.3);
-  const backGeo = new THREE.ExtrudeGeometry(shape, { depth: 0.09, bevelEnabled: false });
-  const back = new THREE.Mesh(backGeo, new THREE.MeshStandardMaterial({ color: 0xfff6e8, roughness: 0.55 }));
-  back.position.z = -0.09;
-  card.add(back);
+  let subject: THREE.Group;
+  if (model) {
+    subject = model.group;
+    subject.position.y = -1.45; // 脚踩在展台顶面上
+    root.add(subject);
+  } else {
+    // ---- 立牌（正面贴图 + 背板厚度）----
+    const shape = roundedRectShape(2.6, 2.6, 0.3);
+    const backGeo = new THREE.ExtrudeGeometry(shape, { depth: 0.09, bevelEnabled: false });
+    const back = new THREE.Mesh(backGeo, new THREE.MeshStandardMaterial({ color: 0xfff6e8, roughness: 0.55 }));
+    back.position.z = -0.09;
+    card.add(back);
 
-  const frontGeo = new THREE.ShapeGeometry(shape, 24);
-  frontGeo.computeBoundingBox();
-  {
-    const bb = frontGeo.boundingBox!;
-    const size = new THREE.Vector3();
-    bb.getSize(size);
-    const uv = frontGeo.attributes.uv as THREE.BufferAttribute;
-    const pos = frontGeo.attributes.position as THREE.BufferAttribute;
-    for (let i = 0; i < uv.count; i++) {
-      uv.setXY(i, (pos.getX(i) - bb.min.x) / size.x, (pos.getY(i) - bb.min.y) / size.y);
+    const frontGeo = new THREE.ShapeGeometry(shape, 24);
+    frontGeo.computeBoundingBox();
+    {
+      const bb = frontGeo.boundingBox!;
+      const size = new THREE.Vector3();
+      bb.getSize(size);
+      const uv = frontGeo.attributes.uv as THREE.BufferAttribute;
+      const pos = frontGeo.attributes.position as THREE.BufferAttribute;
+      for (let i = 0; i < uv.count; i++) {
+        uv.setXY(i, (pos.getX(i) - bb.min.x) / size.x, (pos.getY(i) - bb.min.y) / size.y);
+      }
     }
-  }
-  const frontMat = new THREE.MeshStandardMaterial({ roughness: 0.6, metalness: 0.0 });
-  const front = new THREE.Mesh(frontGeo, frontMat);
-  front.position.z = 0.004;
-  card.add(front);
-  card.position.y = 0.12;
-  root.add(card);
+    const frontMat = new THREE.MeshStandardMaterial({ roughness: 0.6, metalness: 0.0 });
+    const front = new THREE.Mesh(frontGeo, frontMat);
+    front.position.z = 0.004;
+    card.add(front);
+    card.position.y = 0.12;
+    root.add(card);
+    subject = card;
 
-  const texLoader = new THREE.TextureLoader();
-  texLoader.load(opts.image, (tex) => {
-    tex.colorSpace = THREE.SRGBColorSpace;
-    tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
-    frontMat.map = tex;
-    frontMat.needsUpdate = true;
-  });
+    const texLoader = new THREE.TextureLoader();
+    texLoader.load(opts.image, (tex) => {
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+      frontMat.map = tex;
+      frontMat.needsUpdate = true;
+    });
+  }
 
   // ---- 浮尘粒子 ----
   const pCount = 150;
@@ -355,9 +367,10 @@ export function createAnimalStage(container: HTMLElement, opts: StageOptions): S
     root.rotation.y = rotY;
     root.rotation.x = rotX;
     const off = (SIGNATURES[opts.animalId] ?? SIGNATURES.default)(t);
-    card.position.y = 0.12 + off.y;
-    card.rotation.set(off.rx, off.ry, off.rz);
-    card.scale.set(off.sx, off.sy, 1);
+    subject.position.y = (model ? -1.45 : 0.12) + off.y;
+    subject.rotation.set(off.rx, off.ry, off.rz);
+    subject.scale.set(off.sx, off.sy, 1);
+    if (model) animateModelParts(model, opts.animalId, t);
     particles.rotation.y = t * 0.03;
     renderer.render(scene, camera);
   }
