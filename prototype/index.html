@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>性格测试，看看你是哪种萌兽</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; background: linear-gradient(160deg, #FFF3E0, #FCE4EC 55%, #E8F5E9); min-height: 100vh; display: flex; justify-content: center; padding: 20px 14px 40px; color: #3E2723; }
+  .card { background: #fff; width: 100%; max-width: 480px; border-radius: 24px; padding: 28px 22px 32px; box-shadow: 0 12px 32px rgba(93, 64, 55, .15); align-self: flex-start; }
+  h1 { font-size: 24px; line-height: 1.4; text-align: center; }
+  .sub { text-align: center; color: #8D6E63; margin: 10px 0 18px; font-size: 14px; }
+  .zoo { font-size: 23px; text-align: center; letter-spacing: 2px; margin: 8px 0 20px; line-height: 1.5; }
+  .btn { display: block; width: 100%; border: none; cursor: pointer; border-radius: 999px; padding: 15px 18px; font-size: 16px; margin-top: 12px; background: #FF8A65; color: #fff; font-weight: 700; transition: transform .08s; }
+  .btn:active { transform: scale(.98); }
+  .btn.ghost { background: #FFF3E0; color: #6D4C41; font-weight: 500; }
+  .opt { display: block; width: 100%; text-align: left; border: 2px solid #FFE0B2; background: #FFF8E1; cursor: pointer; border-radius: 18px; padding: 16px; font-size: 16px; margin-top: 12px; line-height: 1.5; }
+  .opt:active { border-color: #FF8A65; background: #FBE9E7; }
+  .progress { height: 8px; background: #F1E4DC; border-radius: 99px; overflow: hidden; margin: 14px 0 6px; }
+  .bar { height: 100%; background: linear-gradient(90deg, #FFB74D, #FF8A65); width: 0; transition: width .3s; }
+  .qmeta { color: #A1887F; font-size: 13px; text-align: right; }
+  .qtext { font-size: 19px; line-height: 1.55; margin-top: 14px; font-weight: 700; }
+  .emoji-big { font-size: 96px; text-align: center; margin: 6px 0; }
+  .aname { text-align: center; font-size: 28px; font-weight: 800; }
+  .atitle { text-align: center; color: #FF7043; font-weight: 700; margin-top: 4px; }
+  .match { text-align: center; color: #8D6E63; font-size: 13px; margin-top: 6px; }
+  .desc { line-height: 1.8; margin-top: 16px; font-size: 15px; }
+  .tags { margin-top: 12px; text-align: center; }
+  .tag { display: inline-block; background: #F3E5F5; color: #6A1B9A; border-radius: 999px; padding: 4px 12px; font-size: 13px; margin: 3px; }
+  .dim { margin-top: 10px; font-size: 13px; }
+  .dim .row { display: flex; justify-content: space-between; color: #6D4C41; }
+  .dim .track { height: 10px; background: #EFEBE9; border-radius: 99px; overflow: hidden; margin-top: 4px; }
+  .dim .fill { height: 100%; background: linear-gradient(90deg, #BA68C8, #FF8A65); }
+  .extra { margin-top: 14px; background: #FFF8E1; border-radius: 14px; padding: 12px 14px; font-size: 14px; line-height: 1.7; }
+  .foot { text-align: center; color: #BCAAA4; font-size: 12px; margin-top: 18px; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<div class="card">
+  <!-- 首页 -->
+  <section id="view-start">
+    <div class="zoo">🐶🐱🐰🦦🐼🦊🐹🦌🐯🐷🐘🐬🐵🦔🦉🐢🐧🐨</div>
+    <h1>性格测试<br>看看你是哪种萌兽</h1>
+    <p class="sub">三分钟、十道题，把你的性格测成一只毛茸茸的小动物</p>
+    <button class="btn" id="btn-start">开始测试</button>
+    <p class="foot">免登录 · 本地计分 · 仅供娱乐</p>
+  </section>
+
+  <!-- 答题页 -->
+  <section id="view-quiz" class="hidden">
+    <div class="progress"><div class="bar" id="bar"></div></div>
+    <div class="qmeta" id="qmeta"></div>
+    <div class="qtext" id="qtext"></div>
+    <div id="opts"></div>
+    <button class="btn ghost hidden" id="btn-back">← 上一题</button>
+  </section>
+
+  <!-- 结果页 -->
+  <section id="view-result" class="hidden">
+    <p class="sub" style="margin-bottom:2px">你的灵魂里住着一只</p>
+    <div class="emoji-big" id="r-emoji"></div>
+    <div class="aname" id="r-name"></div>
+    <div class="atitle" id="r-title"></div>
+    <div class="match" id="r-match"></div>
+    <p class="desc" id="r-desc"></p>
+    <div class="tags" id="r-tags"></div>
+    <div id="r-dims" style="margin-top:14px"></div>
+    <div class="extra" id="r-extra"></div>
+    <button class="btn" id="btn-share">复制结果，去喊朋友来测</button>
+    <button class="btn ghost" id="btn-again">再测一次</button>
+    <p class="foot">性格测试 · 看看你是哪种萌兽｜仅供娱乐</p>
+  </section>
+</div>
+
+<script type="module">
+import { computeResult } from "../core/scoring.js";
+
+const [quiz, animalsData] = await Promise.all([
+  fetch("../data/questions.json").then((r) => r.json()),
+  fetch("../data/animals.json").then((r) => r.json())
+]);
+const byId = (id) => animalsData.animals.find((a) => a.id === id);
+const $ = (id) => document.getElementById(id);
+const views = ["view-start", "view-quiz", "view-result"];
+const show = (v) => views.forEach((x) => $(x).classList.toggle("hidden", x !== v));
+
+let answers = [];
+let currentResult = null;
+
+function renderQuestion() {
+  const i = answers.length;
+  const q = quiz.questions[i];
+  $("bar").style.width = (i / quiz.questions.length) * 100 + "%";
+  $("qmeta").textContent = `第 ${i + 1} / ${quiz.questions.length} 题`;
+  $("qtext").textContent = q.text;
+  $("btn-back").classList.toggle("hidden", i === 0);
+  const box = $("opts");
+  box.innerHTML = "";
+  for (const opt of q.options) {
+    const b = document.createElement("button");
+    b.className = "opt";
+    b.textContent = opt.text;
+    b.onclick = () => {
+      answers.push(opt.id);
+      if (answers.length === quiz.questions.length) renderResult();
+      else renderQuestion();
+    };
+    box.appendChild(b);
+  }
+}
+
+function renderResult() {
+  currentResult = computeResult(quiz, animalsData, answers);
+  const a = currentResult.animal;
+  const partner = byId(a.bestPartner);
+  $("r-emoji").textContent = a.emoji;
+  $("r-name").textContent = a.fullName;
+  $("r-title").textContent = a.title;
+  $("r-match").textContent = `匹配度 ${currentResult.matchPercent}% · 只有约 ${a.rarity}% 的人是${a.name}`;
+  $("r-desc").textContent = a.description;
+  $("r-tags").innerHTML = a.traits.map((t) => `<span class="tag">${t}</span>`).join("");
+  $("r-dims").innerHTML = quiz.dimensions.map((d) => {
+    const info = currentResult.dimensions[d.id];
+    const poles = Object.keys(d.poles);
+    const pct = info.percents[info.pole];
+    return `<div class="dim"><div class="row"><span>${d.name}：${info.poleName}</span><span>${pct}%</span></div><div class="track"><div class="fill" style="width:${pct}%"></div></div></div>`;
+  }).join("");
+  $("r-extra").innerHTML = `座右铭：「${a.motto}」<br>小缺点：${a.flaw}<br>最佳拍档：${partner.emoji} ${partner.fullName}`;
+  show("view-result");
+}
+
+$("btn-start").onclick = () => { answers = []; show("view-quiz"); renderQuestion(); };
+$("btn-back").onclick = () => { answers.pop(); renderQuestion(); };
+$("btn-again").onclick = () => { answers = []; show("view-start"); };
+$("btn-share").onclick = async () => {
+  const a = currentResult.animal;
+  const text = `我在「性格测试，看看你是哪种萌兽」测出了 ${a.emoji}${a.fullName}（匹配度 ${currentResult.matchPercent}%）——${a.title}！你是哪种萌兽？快来测测看`;
+  try { await navigator.clipboard.writeText(text); $("btn-share").textContent = "已复制，去粘贴给朋友吧 ✓"; }
+  catch { prompt("复制下面的文案分享给朋友：", text); }
+};
+</script>
+</body>
+</html>
