@@ -72,6 +72,7 @@
     /* H5 特有相关 */
     "h5" : {
         "title" : "性格测试，看看你是哪种萌兽",
+        "publicPath" : "./",
         "router" : {
             "mode" : "hash"
         }
