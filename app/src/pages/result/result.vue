@@ -1,8 +1,9 @@
 <template>
   <view class="page" v-if="result">
     <text class="lead">你的灵魂里住着一只</text>
-    <image v-if="imgOf(result.animal.id)" class="animal-img" :src="imgOf(result.animal.id)" mode="aspectFill" />
+    <image v-if="imgOf(result.animal.id)" class="animal-img" :src="imgOf(result.animal.id)" mode="aspectFill" @click="openViewer" />
     <text v-else class="emoji-big">{{ result.animal.emoji }}</text>
+    <text v-if="imgOf(result.animal.id)" class="view3d-hint">点开看 3D 视角</text>
     <text class="aname">{{ result.animal.fullName }}</text>
     <text class="atitle">{{ result.animal.title }}</text>
     <text class="match">匹配度 {{ result.matchPercent }}% · 只有约 {{ result.animal.rarity }}% 的人是{{ result.animal.name }}</text>
@@ -105,6 +106,11 @@ function again() {
   uni.reLaunch({ url: "/pages/index/index" });
 }
 
+function openViewer() {
+  const id = result.value?.animal.id;
+  if (id) uni.navigateTo({ url: `/pages/viewer/viewer?id=${id}` });
+}
+
 // ---- 分享海报（Canvas 绘制，不依赖第三方库）----
 const posterW = 600;
 const posterH = 880;
@@ -197,6 +203,11 @@ async function makePoster() {
   height: 320rpx;
   border-radius: 48rpx;
   margin-top: 16rpx;
+}
+.view3d-hint {
+  margin-top: 10rpx;
+  font-size: 23rpx;
+  color: #bcaaa4;
 }
 .partner-line {
   display: flex;
