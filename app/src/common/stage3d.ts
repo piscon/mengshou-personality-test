@@ -6,6 +6,7 @@ import * as THREE from "three";
 import { buildProceduralModel, animateModelParts, type ProceduralModel } from "./models3d";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
+import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
 import { hasGlbModel, loadGlbBytes } from "./glbModels";
 
 export interface StageOptions {
@@ -201,11 +202,21 @@ export function createAnimalStage(container: HTMLElement, opts: StageOptions): S
   const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 100);
   camera.position.set(0, 0.3, 7);
 
-  scene.add(new THREE.AmbientLight(0xffffff, 0.9));
-  const key = new THREE.DirectionalLight(0xffffff, 1.6);
+  // 柔和影棚环境光（IBL）：给标准材质补足侧面/背面的漫反射，避免 GLB 模型背光面发暗发灰
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  pmrem.dispose();
+
+  scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+  scene.add(new THREE.HemisphereLight(0xffffff, 0xffe2b8, 0.5));
+  const key = new THREE.DirectionalLight(0xffffff, 1.8);
   key.position.set(3.5, 5, 4.5);
   scene.add(key);
-  const rim = new THREE.DirectionalLight(0xffe0b2, 0.7);
+  // 正面补光：从相机方向打光，把脸部和胸口提亮（用户默认看到的就是正面）
+  const fill = new THREE.DirectionalLight(0xfff4e0, 0.65);
+  fill.position.set(0, 1.2, 6);
+  scene.add(fill);
+  const rim = new THREE.DirectionalLight(0xffe0b2, 0.9);
   rim.position.set(-4, 2.5, -3.5);
   scene.add(rim);
 
@@ -216,10 +227,10 @@ export function createAnimalStage(container: HTMLElement, opts: StageOptions): S
 
   // ---- 展台 ----
   const pedestal = new THREE.Group();
-  const baseMat = new THREE.MeshStandardMaterial({ color: theme, roughness: 0.45, metalness: 0.05 });
+  const baseMat = new THREE.MeshStandardMaterial({ color: theme, roughness: 0.45, metalness: 0.05, envMapIntensity: 0.55 });
   const base = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.62, 0.2, 56), baseMat);
   pedestal.add(base);
-  const topMat = new THREE.MeshStandardMaterial({ color: theme.clone().lerp(new THREE.Color("#ffffff"), 0.35), roughness: 0.35 });
+  const topMat = new THREE.MeshStandardMaterial({ color: theme.clone().lerp(new THREE.Color("#ffffff"), 0.35), roughness: 0.35, envMapIntensity: 0.55 });
   const topDisc = new THREE.Mesh(new THREE.CylinderGeometry(1.28, 1.28, 0.07, 56), topMat);
   topDisc.position.y = 0.13;
   pedestal.add(topDisc);
@@ -254,7 +265,7 @@ export function createAnimalStage(container: HTMLElement, opts: StageOptions): S
     // ---- 立牌（正面贴图 + 背板厚度）----
     const shape = roundedRectShape(2.6, 2.6, 0.3);
     const backGeo = new THREE.ExtrudeGeometry(shape, { depth: 0.09, bevelEnabled: false });
-    const back = new THREE.Mesh(backGeo, new THREE.MeshStandardMaterial({ color: 0xfff6e8, roughness: 0.55 }));
+    const back = new THREE.Mesh(backGeo, new THREE.MeshStandardMaterial({ color: 0xfff6e8, roughness: 0.55, envMapIntensity: 0.5 }));
     back.position.z = -0.09;
     card.add(back);
 
@@ -270,7 +281,7 @@ export function createAnimalStage(container: HTMLElement, opts: StageOptions): S
         uv.setXY(i, (pos.getX(i) - bb.min.x) / size.x, (pos.getY(i) - bb.min.y) / size.y);
       }
     }
-    const frontMat = new THREE.MeshStandardMaterial({ roughness: 0.6, metalness: 0.0 });
+    const frontMat = new THREE.MeshStandardMaterial({ roughness: 0.6, metalness: 0.0, envMapIntensity: 0.35 });
     const front = new THREE.Mesh(frontGeo, frontMat);
     front.position.z = 0.004;
     card.add(front);
@@ -314,11 +325,19 @@ export function createAnimalStage(container: HTMLElement, opts: StageOptions): S
             if (mesh.geometry && !mesh.geometry.getAttribute("normal")) {
               mesh.geometry.computeVertexNormals();
             }
+            // GLB 打磨：原材质 roughness≈0.9、无环境反射时显暗显脏；
+            // 降粗糙度并提高环境光强度，让手办呈柔光缎面质感
+            const mats = Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : [];
+            mats.forEach((m) => {
+              const std = m as THREE.MeshStandardMaterial;
+              if (typeof std.roughness === "number") std.roughness = Math.min(std.roughness, 0.62);
+              if (typeof std.envMapIntensity === "number") std.envMapIntensity = 1.25;
+            });
           });
           const bbox = new THREE.Box3().setFromObject(sceneObj);
           const size = bbox.getSize(new THREE.Vector3());
           const center = bbox.getCenter(new THREE.Vector3());
-          const s = 2.35 / Math.max(size.y, 0.0001);
+          const s = 2.6 / Math.max(size.y, 0.0001);
           sceneObj.scale.setScalar(s);
           sceneObj.position.set(-center.x * s, -bbox.min.y * s, -center.z * s);
           const wrap = new THREE.Group();
@@ -447,6 +466,7 @@ export function createAnimalStage(container: HTMLElement, opts: StageOptions): S
         if (Array.isArray(mat)) mat.forEach((m) => { (m as THREE.MeshStandardMaterial).map?.dispose(); m.dispose(); });
         else if (mat) { (mat as THREE.MeshStandardMaterial).map?.dispose(); mat.dispose(); }
       });
+      (scene.environment as THREE.Texture | null)?.dispose();
       renderer.dispose();
       if (el.parentElement === container) container.removeChild(el);
     },
