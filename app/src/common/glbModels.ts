@@ -8,13 +8,16 @@ const LOADERS: Record<string, () => Promise<string>> = {
     ),
 };
 
-export function hasGlbModel(id: string): boolean {
-  return id in LOADERS;
-}
+// 带骨骼（UniRig 绑骨 + 蒙皮）的 GLB 注册表：stage3d 对这些动物优先取 rigged 版，
+// 加载失败或无 skin 时回退上面的静态版。
+const RIGGED_LOADERS: Record<string, () => Promise<string>> = {
+  shiba: () =>
+    import("../assets/models3d/shiba_rigged.b64.txt?raw").then(
+      (m) => (m as unknown as { default: string }).default
+    ),
+};
 
-export async function loadGlbBytes(id: string): Promise<ArrayBuffer | null> {
-  const loader = LOADERS[id];
-  if (!loader) return null;
+async function decodeB64(loader: () => Promise<string>): Promise<ArrayBuffer | null> {
   try {
     const b64 = (await loader()).trim();
     const bin = atob(b64);
@@ -24,4 +27,24 @@ export async function loadGlbBytes(id: string): Promise<ArrayBuffer | null> {
   } catch {
     return null;
   }
+}
+
+export function hasGlbModel(id: string): boolean {
+  return id in LOADERS;
+}
+
+export async function loadGlbBytes(id: string): Promise<ArrayBuffer | null> {
+  const loader = LOADERS[id];
+  if (!loader) return null;
+  return decodeB64(loader);
+}
+
+export function hasRiggedGlbModel(id: string): boolean {
+  return id in RIGGED_LOADERS;
+}
+
+export async function loadRiggedGlbBytes(id: string): Promise<ArrayBuffer | null> {
+  const loader = RIGGED_LOADERS[id];
+  if (!loader) return null;
+  return decodeB64(loader);
 }

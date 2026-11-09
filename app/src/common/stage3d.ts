@@ -7,7 +7,8 @@ import { buildProceduralModel, animateModelParts, type ProceduralModel } from ".
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 import { RoomEnvironment } from "three/examples/jsm/environments/RoomEnvironment.js";
-import { hasGlbModel, loadGlbBytes } from "./glbModels";
+import { hasGlbModel, loadGlbBytes, hasRiggedGlbModel, loadRiggedGlbBytes } from "./glbModels";
+import { createMappedRigBones, createRigIdle, SHIBA_IDLE_PRESET, SHIBA_RIG_BONE_SPEC, type RigIdle } from "./rigAnim";
 
 export interface StageOptions {
   image: string;
@@ -299,7 +300,11 @@ export function createAnimalStage(container: HTMLElement, opts: StageOptions): S
   }
 
   // ---- 图生 3D 的 GLB 模型：有的话异步加载，解码完成就替换当前主体 ----
+  // 柴犬优先带骨骼的 rigged 版：发现 skin 就关掉整体招牌动作、改走骨骼待机动画；
+  // rigged 加载失败或无 skin 时，完整回退静态 GLB + 原招牌动作路径。
   let glbActive = false;
+  let rigIdle: RigIdle | null = null;
+  let subjectBaseY = model ? -1.45 : 0.12;
   function disposeObject(obj: THREE.Object3D) {
     obj.traverse((o) => {
       const mesh = o as THREE.Mesh;
@@ -309,51 +314,74 @@ export function createAnimalStage(container: HTMLElement, opts: StageOptions): S
       else if (m) { (m as THREE.MeshStandardMaterial).map?.dispose(); m.dispose(); }
     });
   }
-  if (hasGlbModel(opts.animalId)) {
-    loadGlbBytes(opts.animalId)
-      .then(async (buf) => {
-        if (!buf || disposedFlag) return;
-        try {
-          await MeshoptDecoder.ready;
-          const loader = new GLTFLoader();
-          loader.setMeshoptDecoder(MeshoptDecoder);
-          const gltf = await loader.parseAsync(buf, "");
-          if (disposedFlag) return;
-          const sceneObj = gltf.scene;
-          sceneObj.traverse((o) => {
-            const mesh = o as THREE.Mesh;
-            if (mesh.geometry && !mesh.geometry.getAttribute("normal")) {
-              mesh.geometry.computeVertexNormals();
-            }
-            // GLB 打磨：原材质 roughness≈0.9、无环境反射时显暗显脏；
-            // 降粗糙度并提高环境光强度，让手办呈柔光缎面质感
-            const mats = Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : [];
-            mats.forEach((m) => {
-              const std = m as THREE.MeshStandardMaterial;
-              if (typeof std.roughness === "number") std.roughness = Math.min(std.roughness, 0.62);
-              if (typeof std.envMapIntensity === "number") std.envMapIntensity = 1.25;
-            });
-          });
-          const bbox = new THREE.Box3().setFromObject(sceneObj);
-          const size = bbox.getSize(new THREE.Vector3());
-          const center = bbox.getCenter(new THREE.Vector3());
-          const s = 2.6 / Math.max(size.y, 0.0001);
-          sceneObj.scale.setScalar(s);
-          sceneObj.position.set(-center.x * s, -bbox.min.y * s, -center.z * s);
-          const wrap = new THREE.Group();
-          wrap.add(sceneObj);
-          const old = subject;
-          subject = wrap;
-          subject.position.y = -1.45;
-          root.add(subject);
-          root.remove(old);
-          disposeObject(old);
-          glbActive = true;
-        } catch {
-          // GLB 加载失败就保留原主体（程序化模型/立牌）
+  async function attachGlb(buf: ArrayBuffer, wantRig: boolean): Promise<boolean> {
+    try {
+      await MeshoptDecoder.ready;
+      const loader = new GLTFLoader();
+      loader.setMeshoptDecoder(MeshoptDecoder);
+      const gltf = await loader.parseAsync(buf, "");
+      if (disposedFlag) return false;
+      const sceneObj = gltf.scene;
+      let hasSkin = false;
+      sceneObj.traverse((o) => {
+        const sm = o as THREE.SkinnedMesh;
+        if (sm.isSkinnedMesh && sm.skeleton && sm.skeleton.bones.length > 0) hasSkin = true;
+        const mesh = o as THREE.Mesh;
+        if (mesh.geometry && !mesh.geometry.getAttribute("normal")) {
+          mesh.geometry.computeVertexNormals();
         }
-      })
-      .catch(() => undefined);
+        // GLB 打磨：原材质 roughness≈0.9、无环境反射时显暗显脏；
+        // 降粗糙度并提高环境光强度，让手办呈柔光缎面质感
+        const mats = Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : [];
+        mats.forEach((m) => {
+          const std = m as THREE.MeshStandardMaterial;
+          if (typeof std.roughness === "number") std.roughness = Math.min(std.roughness, 0.62);
+          if (typeof std.envMapIntensity === "number") std.envMapIntensity = 1.25;
+        });
+      });
+      // 期望带骨骼却没发现 skin：不替换主体，交给调用方走静态回退
+      if (wantRig && !hasSkin) return false;
+      const bbox = new THREE.Box3().setFromObject(sceneObj);
+      const size = bbox.getSize(new THREE.Vector3());
+      const center = bbox.getCenter(new THREE.Vector3());
+      const s = 2.6 / Math.max(size.y, 0.0001);
+      sceneObj.scale.setScalar(s);
+      sceneObj.position.set(-center.x * s, -bbox.min.y * s, -center.z * s);
+      const wrap = new THREE.Group();
+      wrap.add(sceneObj);
+      const old = subject;
+      subject = wrap;
+      subjectBaseY = -1.45;
+      subject.position.y = subjectBaseY;
+      root.add(subject);
+      root.remove(old);
+      disposeObject(old);
+      glbActive = true;
+      if (wantRig) {
+        // 柴犬骨骼名无语义（bone_0..bone_13），用显式映射构建骨骼表并启动待机动画
+        const bones = createMappedRigBones(sceneObj, SHIBA_RIG_BONE_SPEC);
+        if (bones.head || bones.tail.length || bones.earAll.length) {
+          rigIdle = createRigIdle(bones, SHIBA_IDLE_PRESET);
+        }
+      }
+      return true;
+    } catch {
+      // GLB 加载失败就保留原主体（程序化模型/立牌），并向上报告失败以便回退
+      return false;
+    }
+  }
+  if (hasRiggedGlbModel(opts.animalId) || hasGlbModel(opts.animalId)) {
+    (async () => {
+      if (hasRiggedGlbModel(opts.animalId)) {
+        const rigBuf = await loadRiggedGlbBytes(opts.animalId);
+        if (rigBuf && !disposedFlag && (await attachGlb(rigBuf, true))) return;
+      }
+      if (disposedFlag) return;
+      if (hasGlbModel(opts.animalId)) {
+        const buf = await loadGlbBytes(opts.animalId);
+        if (buf && !disposedFlag) await attachGlb(buf, false);
+      }
+    })().catch(() => undefined);
   }
 
   // ---- 浮尘粒子 ----
@@ -426,6 +454,8 @@ export function createAnimalStage(container: HTMLElement, opts: StageOptions): S
   const clock = new THREE.Clock();
   let raf = 0;
   let disposed = false;
+  // 骨骼模式下自动蹦跳的下一次触发时刻：间隔参考柴犬原招牌动作的节奏（约每 3 秒上下）
+  let nextAutoHop = 1.8;
   function tick() {
     if (disposed) return;
     raf = requestAnimationFrame(tick);
@@ -439,11 +469,25 @@ export function createAnimalStage(container: HTMLElement, opts: StageOptions): S
     rotX += (targetRotX - rotX) * k;
     root.rotation.y = rotY;
     root.rotation.x = rotX;
-    const off = (SIGNATURES[opts.animalId] ?? SIGNATURES.default)(t);
-    subject.position.y = (model ? -1.45 : 0.12) + off.y;
-    subject.rotation.set(off.rx, off.ry, off.rz);
-    subject.scale.set(off.sx, off.sy, 1);
-    if (model && !glbActive) animateModelParts(model, opts.animalId, t);
+    if (rigIdle) {
+      // 骨骼模式：骨骼姿态由 rig idle 每帧直接写到骨骼上，根节点只叠加它返回的
+      // 呼吸缩放与蹦跳偏移；柴犬原有的整体蹦跳招牌动作在此关掉，避免假动作叠加。
+      const f = rigIdle.update(t);
+      subject.position.y = subjectBaseY + f.rootY;
+      subject.rotation.set(0, 0, 0);
+      subject.scale.set(f.scaleX, f.scaleY, f.scaleZ);
+      // 周期性自动蹦一下（骨骼根运动，和头部/耳朵/尾巴的真动作并行）
+      if (t >= nextAutoHop) {
+        rigIdle.triggerHop();
+        nextAutoHop = t + 2.8 + Math.random() * 1.6;
+      }
+    } else {
+      const off = (SIGNATURES[opts.animalId] ?? SIGNATURES.default)(t);
+      subject.position.y = subjectBaseY + off.y;
+      subject.rotation.set(off.rx, off.ry, off.rz);
+      subject.scale.set(off.sx, off.sy, 1);
+      if (model && !glbActive) animateModelParts(model, opts.animalId, t);
+    }
     particles.rotation.y = t * 0.03;
     renderer.render(scene, camera);
   }
