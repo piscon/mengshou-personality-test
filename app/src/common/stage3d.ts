@@ -4,6 +4,9 @@
 // 松手 2.5 秒后自动转台，带浮尘粒子和柔和投影。
 import * as THREE from "three";
 import { buildProceduralModel, animateModelParts, type ProceduralModel } from "./models3d";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
+import { hasGlbModel, loadGlbBytes } from "./glbModels";
 
 export interface StageOptions {
   image: string;
@@ -189,6 +192,7 @@ export function createAnimalStage(container: HTMLElement, opts: StageOptions): S
   }
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
+  let disposedFlag = false;
   renderer.domElement.style.display = "block";
   renderer.domElement.style.touchAction = "none";
   container.appendChild(renderer.domElement);
@@ -283,6 +287,56 @@ export function createAnimalStage(container: HTMLElement, opts: StageOptions): S
     });
   }
 
+  // ---- 图生 3D 的 GLB 模型：有的话异步加载，解码完成就替换当前主体 ----
+  let glbActive = false;
+  function disposeObject(obj: THREE.Object3D) {
+    obj.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (mesh.geometry) mesh.geometry.dispose();
+      const m = mesh.material as THREE.Material | THREE.Material[] | undefined;
+      if (Array.isArray(m)) m.forEach((x) => { (x as THREE.MeshStandardMaterial).map?.dispose(); x.dispose(); });
+      else if (m) { (m as THREE.MeshStandardMaterial).map?.dispose(); m.dispose(); }
+    });
+  }
+  if (hasGlbModel(opts.animalId)) {
+    loadGlbBytes(opts.animalId)
+      .then(async (buf) => {
+        if (!buf || disposedFlag) return;
+        try {
+          await MeshoptDecoder.ready;
+          const loader = new GLTFLoader();
+          loader.setMeshoptDecoder(MeshoptDecoder);
+          const gltf = await loader.parseAsync(buf, "");
+          if (disposedFlag) return;
+          const sceneObj = gltf.scene;
+          sceneObj.traverse((o) => {
+            const mesh = o as THREE.Mesh;
+            if (mesh.geometry && !mesh.geometry.getAttribute("normal")) {
+              mesh.geometry.computeVertexNormals();
+            }
+          });
+          const bbox = new THREE.Box3().setFromObject(sceneObj);
+          const size = bbox.getSize(new THREE.Vector3());
+          const center = bbox.getCenter(new THREE.Vector3());
+          const s = 2.35 / Math.max(size.y, 0.0001);
+          sceneObj.scale.setScalar(s);
+          sceneObj.position.set(-center.x * s, -bbox.min.y * s, -center.z * s);
+          const wrap = new THREE.Group();
+          wrap.add(sceneObj);
+          const old = subject;
+          subject = wrap;
+          subject.position.y = -1.45;
+          root.add(subject);
+          root.remove(old);
+          disposeObject(old);
+          glbActive = true;
+        } catch {
+          // GLB 加载失败就保留原主体（程序化模型/立牌）
+        }
+      })
+      .catch(() => undefined);
+  }
+
   // ---- 浮尘粒子 ----
   const pCount = 150;
   const pPos = new Float32Array(pCount * 3);
@@ -370,7 +424,7 @@ export function createAnimalStage(container: HTMLElement, opts: StageOptions): S
     subject.position.y = (model ? -1.45 : 0.12) + off.y;
     subject.rotation.set(off.rx, off.ry, off.rz);
     subject.scale.set(off.sx, off.sy, 1);
-    if (model) animateModelParts(model, opts.animalId, t);
+    if (model && !glbActive) animateModelParts(model, opts.animalId, t);
     particles.rotation.y = t * 0.03;
     renderer.render(scene, camera);
   }
@@ -379,6 +433,7 @@ export function createAnimalStage(container: HTMLElement, opts: StageOptions): S
   return {
     dispose() {
       disposed = true;
+      disposedFlag = true;
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", resize);
       el.removeEventListener("pointerdown", onDown);
