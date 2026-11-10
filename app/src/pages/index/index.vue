@@ -1,7 +1,7 @@
 <template>
   <view class="page">
     <view class="zoo">
-      <view v-for="a in animals" :key="a.id" class="zoo-item" @click="openViewer(a.id)">
+      <view v-for="a in animals" :key="a.id" class="zoo-item">
         <image v-if="imgOf(a.id)" class="zoo-img" :src="imgOf(a.id)" mode="aspectFill" />
         <text v-else class="zoo-emoji">{{ a.emoji }}</text>
       </view>
@@ -13,9 +13,9 @@
     <text class="note">免登录 · 本地计分 · 仅供娱乐</text>
 
     <view class="guide">
-      <text class="guide-title">萌兽图鉴 · 18 只（点开看 3D）</text>
+      <text class="guide-title">萌兽图鉴 · 18 只</text>
       <view class="grid">
-        <view v-for="a in animals" :key="a.id" class="cell" @click="openViewer(a.id)">
+        <view v-for="a in animals" :key="a.id" class="cell">
           <image v-if="imgOf(a.id)" class="cell-img" :src="imgOf(a.id)" mode="aspectFill" />
           <text v-else class="cell-emoji">{{ a.emoji }}</text>
           <text class="cell-name">{{ a.fullName }}</text>
@@ -35,10 +35,6 @@ const imgOf = animalImage;
 
 function start() {
   uni.navigateTo({ url: "/pages/quiz/quiz" });
-}
-
-function openViewer(id: string) {
-  uni.navigateTo({ url: `/pages/viewer/viewer?id=${id}` });
 }
 </script>
 
