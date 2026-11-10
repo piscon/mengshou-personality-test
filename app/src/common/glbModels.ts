@@ -10,12 +10,7 @@ const LOADERS: Record<string, () => Promise<string>> = {
 
 // 带骨骼（UniRig 绑骨 + 蒙皮）的 GLB 注册表：stage3d 对这些动物优先取 rigged 版，
 // 加载失败或无 skin 时回退上面的静态版。
-const RIGGED_LOADERS: Record<string, () => Promise<string>> = {
-  shiba: () =>
-    import("../assets/models3d/shiba_rigged.b64.txt?raw").then(
-      (m) => (m as unknown as { default: string }).default
-    ),
-};
+const RIGGED_LOADERS: Record<string, () => Promise<string>> = {};
 
 async function decodeB64(loader: () => Promise<string>): Promise<ArrayBuffer | null> {
   try {
